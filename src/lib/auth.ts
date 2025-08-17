@@ -14,15 +14,15 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
   },
-//   socialProviders: {
-//     github: {
-//       clientId: process.env.GITHUB_CLIENT_ID as string,
-//       clientSecret: process.env.GITHUB_CLIENT_SECRET as string,
-//     },
-//     google: {
-//       clientId: process.env.GOOGLE_CLIENT_ID as string,
-//       clientSecret: process.env.GOOGLE_CLIENT_SECRET as string,
-//     },
-//   },
-//   trustedOrigins: ["http://localhost:3000", "http://192.168.40.164:3000"],
+  socialProviders: {
+    github: {
+      clientId: process.env.GITHUB_CLIENT_ID as string,
+      clientSecret: process.env.GITHUB_CLIENT_SECRET as string,
+    },
+    google: {
+      clientId: process.env.GOOGLE_CLIENT_ID as string,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET as string,
+    },
+  },
+  trustedOrigins: ["http://localhost:3000", "http://192.168.29.70:3000"],
 });

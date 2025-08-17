@@ -4,10 +4,8 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-
 import { authClient } from "@/lib/auth-client";
-
+import { useRouter} from 'next/navigation'
 import { Alert, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,9 +18,9 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-
 import { OctagonAlertIcon } from "lucide-react";
 import { useState } from "react";
+import { FaGoogle, FaGithub} from 'react-icons/fa'
 
 const formSchema = z
   .object({
@@ -37,8 +35,7 @@ const formSchema = z
   });
 
 export const SignUpView = () => {
-  const router = useRouter();
-
+  const router = useRouter()
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<boolean>(false);
 
@@ -61,11 +58,34 @@ export const SignUpView = () => {
         name: data.name,
         email: data.email,
         password: data.password,
+        callbackURL:"/"
       },
       {
         onSuccess: () => {
           setPending(false);
-          router.push("/");
+          router.push("/")
+        },
+        onError: ({ error }) => {
+          setPending(false);
+          setError(error.message);
+        },
+      },
+    );
+  };
+
+  const onSocial = (provider: "github" | "google") => {
+    setError(null);
+    setPending(true);
+
+    authClient.signIn.social(
+      {
+      provider:provider,
+      callbackURL:"/"
+      },
+      {
+        onSuccess: () => {
+          setPending(false);
+
         },
         onError: ({ error }) => {
           setPending(false);
@@ -158,7 +178,7 @@ export const SignUpView = () => {
                         <FormControl>
                           <Input
                             type="password"
-                            placeholder="Enter Your Passwords Again"
+                            placeholder="Enter Your Password Again"
                             {...field}
                             value={field.value ?? ""}
                           />
@@ -185,25 +205,21 @@ export const SignUpView = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <Button
                     disabled={pending}
-                    onClick={() =>
-                      authClient.signIn.social({ provider: "google" })
-                    }
+                    onClick={() => onSocial("google")}
                     variant="outline"
                     type="button"
                     className="w-full"
                   >
-                    Google
+                    <FaGoogle />Google
                   </Button>
                   <Button
                     disabled={pending}
-                    onClick={() =>
-                      authClient.signIn.social({ provider: "github" })
-                    }
+                    onClick={() => onSocial("github")}
                     variant="outline"
                     type="button"
                     className="w-full"
                   >
-                    GitHub
+                    <FaGithub />GitHub
                   </Button>
                 </div>
                 <div className="text-center text-sm">
