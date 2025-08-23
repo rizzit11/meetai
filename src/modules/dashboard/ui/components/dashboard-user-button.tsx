@@ -46,7 +46,7 @@ export const DashboardUserButton = () => {
         return (
             <Drawer>
                 <DrawerTrigger className='rounded-lg border border-border/10 p-2 w-full flex 
-                itens-centre justify-between bg-white/5 hover:bg-white/10 overflow-hidden gap-x-2'>
+                items-center justify-between bg-white/5 hover:bg-white/10 overflow-hidden gap-x-2'>
                     {data.user.image ? (
                         <Avatar>
                             <AvatarImage src={data.user.image} />
@@ -83,7 +83,7 @@ export const DashboardUserButton = () => {
     return (
         <DropdownMenu>
             <DropdownMenuTrigger className='rounded-lg border border-border/10 p-2 w-full flex 
-            itens-centre justify-between bg-white/5 hover:bg-white/10 overflow-hidden gap-x-2'>
+            items-center justify-between bg-white/5 hover:bg-white/10 overflow-hidden gap-x-2'>
                 {data.user.image ? (
                     <Avatar>
                         <AvatarImage src={data.user.image} />
