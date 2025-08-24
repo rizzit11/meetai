@@ -10,7 +10,7 @@ import { redirect } from 'next/navigation'
 
 
 const Page = async () => {
-    const session = await auth.api.getSession({
+    const session = auth.api.getSession({
         headers: await headers(),
       });
     if(!session){
