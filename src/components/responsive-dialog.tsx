@@ -1,26 +1,14 @@
-'use client'
+"use client";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription } from "@/components/ui/drawer";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { 
-    Dialog,
-    DialogContent,
-    DialogHeader,
-    DialogTitle,
-    DialogDescription
-} from "@/components/ui/dialog";
-import {
-    Drawer,
-    DrawerContent,
-    DrawerHeader,
-    DrawerTitle,
-    DrawerDescription
-} from "@/components/ui/drawer";
 
-interface ResponsiveDialogProps {
-    title: string
-    description: string
-    children: React.ReactNode
-    open: boolean
-    onOpenChange: (open: boolean) => void 
+interface ResponsiveDialogProps{
+    title: string;
+    description: string;
+    children: React.ReactNode;
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
 }
 
 export const ResponsiveDialog = ({
@@ -30,31 +18,32 @@ export const ResponsiveDialog = ({
     open,
     onOpenChange
 }: ResponsiveDialogProps) => {
-    const isMobile = useIsMobile()
-
+    const isMobile = useIsMobile();
     if(isMobile) {
-        return (
+        return(
             <Drawer open={open} onOpenChange={onOpenChange}>
                 <DrawerContent>
                     <DrawerHeader>
                         <DrawerTitle>{title}</DrawerTitle>
                         <DrawerDescription>{description}</DrawerDescription>
                     </DrawerHeader>
-                    <div className="p-4">{children}</div>
+                    <div className="p-4">
+                        {children}
+                    </div>
                 </DrawerContent>
             </Drawer>
         )
     }
 
-    return (
+    return(
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent>
+            <DialogContent className="max-w-2xl">
                 <DialogHeader>
                     <DialogTitle>{title}</DialogTitle>
                     <DialogDescription>{description}</DialogDescription>
                 </DialogHeader>
-                {children}
+                    {children}
             </DialogContent>
         </Dialog>
     )
-}
+};

@@ -1,37 +1,43 @@
+import { and, eq, not } from "drizzle-orm";
+import { NextRequest, NextResponse } from "next/server";
+
+import OpenAI from "openai";
+import { ChatCompletionMessageParam } from "openai/resources/index.mjs";
+
 import {
+  MessageNewEvent,
   CallEndedEvent,
-  // MessageNewEvent,
   CallTranscriptionReadyEvent,
   CallSessionParticipantLeftEvent,
   CallRecordingReadyEvent,
   CallSessionStartedEvent,
 } from "@stream-io/node-sdk";
 
-import { and, eq, not } from "drizzle-orm";
-
-import { NextRequest, NextResponse } from "next/server";
-
 import { db } from "@/db";
 import { agents, meetings } from "@/db/schema";
 import { streamVideo } from "@/lib/stream-video";
 import { inngest } from "@/inngest/client";
+import { generateAvatarUri } from "@/lib/avatar";
+import { streamChat } from "@/lib/stream-chat";
+
+const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 
 function verifySignatureWithSDK(body: string, signature: string): boolean {
   return streamVideo.verifyWebhook(body, signature);
 }
 
-export async function POST(req: NextRequest) {
-  const signature = req.headers.get("x-signature");
-  const apikey = req.headers.get("x-api-key");
+export async function POST(request: NextRequest) {
+  const signature = request.headers.get("x-signature");
+  const apiKey = request.headers.get("x-api-key");
 
-  if (!signature || !apikey) {
+  if (!signature || !apiKey) {
     return NextResponse.json(
       { error: "Missing signature or API key" },
       { status: 400 }
     );
   }
 
-  const body = await req.text();
+  const body = await request.text();
 
   if (!verifySignatureWithSDK(body, signature)) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
@@ -39,7 +45,7 @@ export async function POST(req: NextRequest) {
 
   let payload: unknown;
   try {
-    payload = JSON.parse(body) as Record<string, unknown>;
+    payload = JSON.parse(body);
   } catch {
     return NextResponse.json(
       { error: "Invalid JSON payload" },
@@ -47,7 +53,15 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const eventType = (payload as Record<string, unknown>)?.type;
+  type StreamEvent =
+    | CallSessionStartedEvent
+    | CallSessionParticipantLeftEvent
+    | CallEndedEvent
+    | CallTranscriptionReadyEvent
+    | CallRecordingReadyEvent
+    | MessageNewEvent;
+
+  const eventType = (payload as StreamEvent)?.type;
 
   if (eventType === "call.session_started") {
     const event = payload as CallSessionStartedEvent;
@@ -55,12 +69,12 @@ export async function POST(req: NextRequest) {
 
     if (!meetingId) {
       return NextResponse.json(
-        { error: "Missing meeting ID in call session started event" },
+        { error: "Missing meeting ID" },
         { status: 400 }
       );
     }
 
-    const [existingMeeting] = await db
+    const [existedMeeting] = await db
       .select()
       .from(meetings)
       .where(
@@ -73,9 +87,9 @@ export async function POST(req: NextRequest) {
         )
       );
 
-    if (!existingMeeting) {
+    if (!existedMeeting) {
       return NextResponse.json(
-        { error: "Meeting not found or already completed" },
+        { error: "Meeting not found or already started" },
         { status: 404 }
       );
     }
@@ -83,29 +97,26 @@ export async function POST(req: NextRequest) {
     await db
       .update(meetings)
       .set({ status: "active", startedAt: new Date() })
-      .where(eq(meetings.id, existingMeeting.id));
+      .where(eq(meetings.id, existedMeeting.id));
 
-    const [existingAgent] = await db
+    const [existedAgent] = await db
       .select()
       .from(agents)
-      .where(eq(agents.id, existingMeeting.agentId));
+      .where(eq(agents.id, existedMeeting.agentId));
 
-    if (!existingAgent) {
-      return NextResponse.json(
-        { error: "Agent not found for the meeting" },
-        { status: 404 }
-      );
+    if (!existedAgent) {
+      return NextResponse.json({ error: "Agent not found" }, { status: 404 });
     }
 
     const call = streamVideo.video.call("default", meetingId);
-    const realtimeClient = await streamVideo.video.connectOpenAi({
+    const realTimeClient = await streamVideo.video.connectOpenAi({
       call,
       openAiApiKey: process.env.OPENAI_API_KEY!,
-      agentUserId: existingAgent.id,
+      agentUserId: existedAgent.id,
     });
 
-    realtimeClient.updateSession({
-      instructions: existingAgent.instructions,
+    realTimeClient.updateSession({
+      instructions: existedAgent.instructions,
     });
   } else if (eventType === "call.session_participant_left") {
     const event = payload as CallSessionParticipantLeftEvent;
@@ -113,7 +124,7 @@ export async function POST(req: NextRequest) {
 
     if (!meetingId) {
       return NextResponse.json(
-        { error: "Missing meeting ID in participant left event" },
+        { error: "Missing meeting ID" },
         { status: 400 }
       );
     }
@@ -123,14 +134,12 @@ export async function POST(req: NextRequest) {
   } else if (eventType === "call.session_ended") {
     const event = payload as CallEndedEvent;
     const meetingId = event.call.custom?.meetingId;
-
     if (!meetingId) {
       return NextResponse.json(
-        { error: "Missing meeting ID in call ended event" },
+        { error: "Missing meeting ID" },
         { status: 400 }
       );
     }
-
     await db
       .update(meetings)
       .set({ status: "processing", endedAt: new Date() })
@@ -141,36 +150,153 @@ export async function POST(req: NextRequest) {
 
     const [updatedMeeting] = await db
       .update(meetings)
-      .set({
-        transcriptUrl: event.call_transcription.url,
-      })
+      .set({ transcriptUrl: event.call_transcription.url })
       .where(eq(meetings.id, meetingId))
       .returning();
 
     if (!updatedMeeting) {
-      return NextResponse.json(
-        { error: "Meeting not found for transcription" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Meeting not found" }, { status: 404 });
     }
+
     await inngest.send({
       name: "meetings/processing",
       data: {
         meetingId: updatedMeeting.id,
         transcriptUrl: updatedMeeting.transcriptUrl,
-      }
-    })
+      },
+    });
   } else if (eventType === "call.recording_ready") {
     const event = payload as CallRecordingReadyEvent;
     const meetingId = event.call_cid.split(":")[1];
 
     await db
       .update(meetings)
-      .set({
-        recordingUrl: event.call_recording.url,
-      })
+      .set({ recordingUrl: event.call_recording.url })
       .where(eq(meetings.id, meetingId));
-  }
+  } else if (eventType === "message.new") {
+    const event = payload as MessageNewEvent;
 
+    const userId = event.user?.id;
+    const channelId = event.channel_id;
+    const text = event.message?.text;
+
+    if (!userId || !channelId || !text) {
+      return NextResponse.json(
+        { error: "Missing user ID, channel ID, or message text" },
+        { status: 400 }
+      );
+    }
+
+    const [existingMeeting] = await db
+      .select()
+      .from(meetings)
+      .where(and(eq(meetings.id, channelId), eq(meetings.status, "completed")));
+
+    if (!existingMeeting) {
+      return NextResponse.json(
+        { error: "Meeting not found or not completed" },
+        { status: 404 }
+      );
+    }
+
+    const [existingAgent] = await db
+      .select()
+      .from(agents)
+      .where(eq(agents.id, existingMeeting.agentId));
+
+    if (!existingAgent) {
+      return NextResponse.json({ error: "Agent not found" }, { status: 404 });
+    }
+
+    if (userId !== existingAgent.id) {
+      const instructions = `
+      You are an AI assistant helping the user revisit a recently completed meeting.
+      Below is a summary of the meeting, generated from the transcript:
+      
+      ${existingMeeting.summary}
+      
+      The following are your original instructions from the live meeting assistant. Please continue to follow these behavioral guidelines as you assist the user:
+      
+      ${existingAgent.instructions}
+      
+      The user may ask questions about the meeting, request clarifications, or ask for follow-up actions.
+      Always base your responses on the meeting summary above.
+      
+      You also have access to the recent conversation history between you and the user. Use the context of previous messages to provide relevant, coherent, and helpful responses. If the user's question refers to something discussed earlier, make sure to take that into account and maintain continuity in the conversation.
+      
+      If the summary does not contain enough information to answer a question, politely let the user know.
+      
+      Be concise, helpful, and focus on providing accurate information from the meeting and the ongoing conversation.
+      `;
+
+      const channel = streamChat.channel("messaging", channelId);
+      await channel.watch();
+
+      const previousMessages = channel.state.messages
+        .slice(-5)
+        .filter((msg) => msg.text && msg.text.trim() !== "")
+        .map<ChatCompletionMessageParam>((msg) => ({
+          role: msg.user?.id === existingAgent.id ? "assistant" : "user",
+          content: msg.text || "",
+        }));
+
+      const GPTResponse = await openaiClient.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: instructions,
+          },
+          ...previousMessages,
+          {
+            role: "user",
+            content: text,
+          },
+        ],
+      });
+
+      const GPTResponseText = GPTResponse.choices[0].message?.content || "";
+
+      if (!GPTResponseText) {
+        return NextResponse.json(
+          { error: "No response from AI" },
+          { status: 400 }
+        );
+      }
+
+      const avatarUrl = generateAvatarUri({
+        seed: existingAgent.name,
+        variant: "botttsNeutral",
+      });
+
+      streamChat.upsertUser({
+        id: existingAgent.id,
+        name: existingAgent.name,
+        image: avatarUrl,
+      });
+
+      const existingMessages = await channel.query({ messages: { limit: 10 } });
+
+      const alreadyResponded = existingMessages.messages.some(
+        (msg) =>
+          msg.user?.id === existingAgent.id &&
+          new Date(msg.created_at ?? 0).getTime() >
+            new Date(event.message?.created_at ?? 0).getTime()
+      );
+
+      if (alreadyResponded) {
+        return NextResponse.json({ status: "already responded" });
+      }
+
+      channel.sendMessage({
+        text: GPTResponseText,
+        user: {
+          id: existingAgent.id,
+          name: existingAgent.name,
+          image: avatarUrl,
+        },
+      });
+    }
+  }
   return NextResponse.json({ status: "ok" });
 }

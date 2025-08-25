@@ -7,9 +7,9 @@ import JSONL from "jsonl-parse-stringify";
 import { createAgent, openai, TextMessage } from "@inngest/agent-kit";
 
 const summarizer = createAgent({
-  name: "summarizer",
-  system: 
-    `You are an expert summarizer. You write readable, concise, simple content. You are given a transcript of a meeting and you need to summarize it.
+  name: "Summarizer",
+  system: `
+    You are an expert summarizer. You write readable, concise, simple content. You are given a transcript of a meeting and you need to summarize it.
 
 Use the following markdown structure for every output:
 
@@ -27,9 +27,12 @@ Example:
 
 #### Next Section
 - Feature X automatically does Y
-- Mention of integration with Z`
-    .trim(),
-    model: openai({ model: "gpt-4o", apiKey: process.env.OPENAI_API_KEY })
+- Mention of integration with Z
+  `.trim(),
+  model: openai({
+    model: "gpt-4o", // Use the GPT-4o model
+    apiKey: process.env.OPENAI_API_KEY,
+  }),
 });
 
 export const meetingsProcessing = inngest.createFunction(
@@ -40,7 +43,7 @@ export const meetingsProcessing = inngest.createFunction(
       return fetch(event.data.transcriptUrl).then((res) => res.text());
     });
 
-    const transcript = await step.run("parse-transcript", async () => {
+    const transcript = await step.run("Parse transcription", async () => {
       return JSONL.parse<StreamTranscriptItem>(response);
     });
 
@@ -58,6 +61,7 @@ export const meetingsProcessing = inngest.createFunction(
             ...user,
           }))
         );
+
       const agentSpeakers = await db
         .select()
         .from(agents)
@@ -74,6 +78,7 @@ export const meetingsProcessing = inngest.createFunction(
         const speaker = speakers.find(
           (speaker) => speaker.id === item.speaker_id
         );
+
         if (!speaker) {
           return {
             ...item,
@@ -93,18 +98,19 @@ export const meetingsProcessing = inngest.createFunction(
     });
 
     const { output } = await summarizer.run(
-        "Summarize the following transcript: " + 
+      "Summarize the following transcript" +
         JSON.stringify(transcriptWithSpeakers)
     );
 
     await step.run("save-summary", async () => {
-        await db
+      return db
         .update(meetings)
         .set({
-            summary: (output[0] as TextMessage).content as string,
-            status: "completed"
+          summary: (output[0] as TextMessage).content as string,
+          status: "completed",
         })
         .where(eq(meetings.id, event.data.meetingId))
-    })
+        .returning();
+    });
   }
 );
